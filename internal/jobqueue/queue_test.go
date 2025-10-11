@@ -113,8 +113,36 @@ func TestJobRetry(t *testing.T) {
 	}
 }
 
-// New tests to verify configurable retry behavior
+// Helpers for polling in tests
+func waitForMinAttempts(t *testing.T, q *Queue, id string, minAttempts int, deadline time.Time) time.Time {
+	t.Helper()
+	for time.Now().Before(deadline) {
+		job, ok := q.GetJob(id)
+		if !ok {
+			t.Fatal("job not found")
+		}
+		if job.Attempts >= minAttempts {
+			return time.Now()
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return time.Time{}
+}
 
+func waitForStatus(t *testing.T, q *Queue, id string, status string, deadline time.Time) (*Job, bool) {
+	t.Helper()
+	for time.Now().Before(deadline) {
+		job, ok := q.GetJob(id)
+		if ok && job.Status == status {
+			return job, true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	job, ok := q.GetJob(id)
+	return job, ok
+}
+
+// New tests to verify configurable retry behavior
 func newQueueWithConfigRetries(maxRetries int, backoff time.Duration, shouldErr bool) (*Queue, *mockHandler, string) {
 	cfg := &QueueConfig{
 		WorkerCount:  1,
@@ -130,66 +158,39 @@ func newQueueWithConfigRetries(maxRetries int, backoff time.Duration, shouldErr 
 }
 
 func TestJobRetryRespectsMaxRetries(t *testing.T) {
-	// Handler selalu error, MaxRetries=2 => total attempts harus 2 dan status akhir failed
+	// Handler always errors, MaxRetries=2 => total attempts should be 2 and final status failed
 	q, _, id := newQueueWithConfigRetries(2, 10*time.Millisecond, true)
 
-	// Tunggu cukup lama untuk dua attempt + satu backoff
-	time.Sleep(100 * time.Millisecond)
-
-	job, ok := q.GetJob(id)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	job, ok := waitForStatus(t, q, id, "failed", deadline)
 	assertJobExists(t, ok)
 
-	if job.Attempts != 2 {
-		t.Fatalf("expected attempts=2, got %d", job.Attempts)
-	}
 	if job.Status != "failed" {
 		t.Fatalf("expected final status 'failed', got %q", job.Status)
+	}
+	if job.Attempts != 2 {
+		t.Fatalf("expected attempts=2, got %d", job.Attempts)
 	}
 }
 
 func TestJobRetryBackoffRespected(t *testing.T) {
-	// MaxRetries >=2 agar ada attempt ke-2; gunakan backoff yang cukup besar agar terukur
+	// MaxRetries >=2 to ensure second attempt; use a measurable backoff
 	backoff := 120 * time.Millisecond
+	timingTolerance := 30 * time.Millisecond
 	q, _, id := newQueueWithConfigRetries(2, backoff, true)
 
-	var t1, t2 time.Time
 	deadline := time.Now().Add(2 * time.Second)
-
-	// Tunggu sampai attempts >= 1 (attempt pertama)
-	for time.Now().Before(deadline) {
-		job, ok := q.GetJob(id)
-		if !ok {
-			t.Fatal("job not found")
-		}
-		if job.Attempts >= 1 {
-			t1 = time.Now()
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	t1 := waitForMinAttempts(t, q, id, 1, deadline)
 	if t1.IsZero() {
 		t.Fatal("did not observe first attempt in time")
 	}
-
-	// Tunggu sampai attempts >= 2 (setelah backoff)
-	for time.Now().Before(deadline) {
-		job, ok := q.GetJob(id)
-		if !ok {
-			t.Fatal("job not found")
-		}
-		if job.Attempts >= 2 {
-			t2 = time.Now()
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	t2 := waitForMinAttempts(t, q, id, 2, deadline)
 	if t2.IsZero() {
 		t.Fatal("did not observe second attempt in time")
 	}
 
 	delta := t2.Sub(t1)
-	// Longgar untuk flakiness: minimal 80% dari backoff dan maksimal 1s
-	min := backoff - 30*time.Millisecond
+	min := backoff - timingTolerance
 	if min < 0 {
 		min = 0
 	}
