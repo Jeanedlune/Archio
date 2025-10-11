@@ -72,7 +72,9 @@ func TestMemoryStore(t *testing.T) {
 func TestBadgerStore(t *testing.T) {
 	dir, err := os.MkdirTemp("", "badger-test")
 	assertNoError(t, err, errCreateTempDir)
-	defer os.RemoveAll(dir)
+	defer func() {
+		_ = os.RemoveAll(dir)
+	}()
 
 	store, err := NewBadgerStore(dir)
 	assertNoError(t, err, errCreateStore)

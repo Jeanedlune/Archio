@@ -45,7 +45,10 @@ func TestRaftSnapshotFileUsable_StartAndSnapshot(t *testing.T) {
 	t.Skip("Skipping due to raft-boltdb compatibility issue")
 	testData := map[string][]byte{"r1": []byte("v1"), "r2": []byte("v2")}
 	dataDir, node := startSingleNodeRaftWithData(t, testData)
-	defer func() { node.raft.Shutdown(); os.RemoveAll(dataDir) }()
+	defer func() {
+		node.raft.Shutdown()
+		_ = os.RemoveAll(dataDir)
+	}()
 
 	// Create a snapshot from the node's FSM directly and persist to file
 	fsm := (*FSM)(node)
