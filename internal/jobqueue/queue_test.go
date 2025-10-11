@@ -122,7 +122,7 @@ func waitForMinAttempts(t *testing.T, q *Queue, id string, minAttempts int, dead
 			t.Fatal("job not found")
 		}
 		if job.Attempts >= minAttempts {
-			return time.Now()
+			return job.Updated
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -197,7 +197,7 @@ func TestJobRetryBackoffRespected(t *testing.T) {
 	if delta < min {
 		t.Fatalf("second attempt occurred too soon: got %v, want >= %v", delta, min)
 	}
-	if delta > time.Second {
-		t.Fatalf("second attempt took too long: got %v", delta)
+	if delta > backoff*2 {
+		t.Fatalf("second attempt took too long: got %v, want <= %v", delta, backoff*2)
 	}
 }
