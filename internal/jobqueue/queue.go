@@ -152,7 +152,12 @@ func (q *Queue) GetJob(id string) (*Job, bool) {
 	defer q.mu.RUnlock()
 
 	job, exists := q.jobs[id]
-	return job, exists
+	if !exists {
+		return nil, false
+	}
+	// Return a copy to avoid exposing internal mutable state and prevent data races
+	jobCopy := *job
+	return &jobCopy, true
 }
 
 // generateID creates a unique job ID using UUID
