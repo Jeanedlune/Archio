@@ -28,6 +28,7 @@ type Queue struct {
 	processor *JobProcessor
 	ctx       context.Context
 	cancel    context.CancelFunc
+	config    *QueueConfig
 }
 
 // QueueConfig holds configuration for the job queue
@@ -62,6 +63,7 @@ func NewQueueWithConfig(config *QueueConfig) *Queue {
 		processor: NewJobProcessor(),
 		ctx:       ctx,
 		cancel:    cancel,
+		config:    config,
 	}
 
 	// Register default handlers
@@ -113,9 +115,9 @@ func (q *Queue) processJob(job *Job) {
 	if err != nil {
 		job.Status = "failed"
 		job.Error = err.Error()
-		if job.Attempts < 3 { // TODO: Make configurable
+		if job.Attempts < q.config.MaxRetries {
 			job.Status = "pending"
-			time.AfterFunc(time.Second*5, func() { // TODO: Make backoff configurable
+			time.AfterFunc(q.config.RetryBackoff, func() {
 				q.tasks <- job
 			})
 		}
@@ -123,10 +125,12 @@ func (q *Queue) processJob(job *Job) {
 		job.Status = "completed"
 	}
 	job.Updated = time.Now()
-} // AddJob adds a new job to the queue
+}
+
+// AddJob adds a new job to the queue
 func (q *Queue) AddJob(jobType string, payload []byte) string {
 	job := &Job{
-		ID:      generateID(), // TODO: Implement ID generation
+		ID:      generateID(),
 		Type:    jobType,
 		Payload: payload,
 		Status:  "pending",

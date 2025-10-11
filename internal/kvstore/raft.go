@@ -91,6 +91,15 @@ func NewRaftNode(store Store, dataDir, bindAddr string, bootstrap bool) (*RaftNo
 	return node, nil
 }
 
+// Shutdown gracefully stops the Raft node
+func (n *RaftNode) Shutdown() error {
+	if n == nil || n.raft == nil {
+		return nil
+	}
+	f := n.raft.Shutdown()
+	return f.Error()
+}
+
 // FSM implements the raft.FSM interface
 type FSM RaftNode
 
