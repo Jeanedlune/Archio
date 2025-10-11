@@ -44,7 +44,11 @@ func main() {
 	} else {
 		store = kvstore.NewMemoryStore()
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("Error closing store: %v", err)
+		}
+	}()
 
 	// Initialize job queue with configuration
 	queueConfig := &jobqueue.QueueConfig{

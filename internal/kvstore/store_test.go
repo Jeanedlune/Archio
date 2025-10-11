@@ -76,7 +76,9 @@ func TestBadgerStore(t *testing.T) {
 
 	store, err := NewBadgerStore(dir)
 	assertNoError(t, err, errCreateStore)
-	defer store.Close()
+	defer func() {
+		_ = store.Close()
+	}()
 
 	testStoreOperations(t, store)
 }

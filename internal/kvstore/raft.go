@@ -148,7 +148,9 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	start := time.Now()
 	phase := "restore"
 	metrics.SnapshotOperations.WithLabelValues(phase, "started").Inc()
-	defer rc.Close()
+	defer func() {
+		_ = rc.Close()
+	}()
 
 	var snapshot map[string][]byte
 	if err := json.NewDecoder(rc).Decode(&snapshot); err != nil {
@@ -190,7 +192,7 @@ type fsmSnapshot struct {
 func (f *fsmSnapshot) Persist(sink raft.SnapshotSink) error {
 	_, err := sink.Write(f.data)
 	if err != nil {
-		sink.Cancel()
+		_ = sink.Cancel()
 		return err
 	}
 	return sink.Close()

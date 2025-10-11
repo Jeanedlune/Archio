@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,12 +20,12 @@ func startSingleNodeRaftWithData(t *testing.T, data map[string][]byte) (string, 
 	store := NewMemoryStore()
 	node, err := NewRaftNode(store, dataDir, "127.0.0.1:0", true)
 	if err != nil {
-		os.RemoveAll(dataDir)
+		_ = os.RemoveAll(dataDir)
 		t.Fatalf("NewRaftNode: %v", err)
 	}
 	if err := waitForLeader(node, 5*time.Second); err != nil {
 		node.raft.Shutdown()
-		os.RemoveAll(dataDir)
+		_ = os.RemoveAll(dataDir)
 		t.Fatalf("leader wait: %v", err)
 	}
 	for k, v := range data {
@@ -35,7 +34,7 @@ func startSingleNodeRaftWithData(t *testing.T, data map[string][]byte) (string, 
 		f := node.raft.Apply(b, 2*time.Second)
 		if err := f.Error(); err != nil {
 			node.raft.Shutdown()
-			os.RemoveAll(dataDir)
+			_ = os.RemoveAll(dataDir)
 			t.Fatalf("apply error: %v", err)
 		}
 	}
@@ -61,7 +60,7 @@ func TestRaftSnapshotFileUsable_StartAndSnapshot(t *testing.T) {
 		t.Fatalf("create temp file: %v", err)
 	}
 	path := tf.Name()
-	tf.Close()
+	_ = tf.Close()
 	sink, err := newFileSnapshotSink(path)
 	if err != nil {
 		t.Fatalf("new sink: %v", err)
@@ -75,7 +74,9 @@ func TestRaftSnapshotFileUsable_StartAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open snapshot: %v", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	newStore := NewMemoryStore()
 	newFSM := &FSM{store: newStore}
@@ -103,34 +104,3 @@ func waitForLeader(node *RaftNode, timeout time.Duration) error {
 	return fmt.Errorf("node did not become leader within %v", timeout)
 }
 
-// findLatestFile waits up to timeout for a non-.tmp snapshot file in dir.
-//
-//nolint:gocyclo
-func findLatestFile(dir string, timeout time.Duration) (string, error) {
-	waitDeadline := time.Now().Add(timeout)
-	for time.Now().Before(waitDeadline) {
-		files, err := os.ReadDir(dir)
-		if err == nil {
-			var latest time.Time
-			var pick string
-			for _, fi := range files {
-				if fi.IsDir() {
-					continue
-				}
-				st, err := fi.Info()
-				if err != nil {
-					continue
-				}
-				if st.ModTime().After(latest) {
-					latest = st.ModTime()
-					pick = filepath.Join(dir, fi.Name())
-				}
-			}
-			if pick != "" {
-				return pick, nil
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return "", fmt.Errorf("no snapshot file found in %s", dir)
-}

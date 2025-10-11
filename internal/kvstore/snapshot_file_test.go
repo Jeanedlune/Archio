@@ -54,7 +54,7 @@ func TestSnapshotPersistToFile(t *testing.T) {
 		t.Fatalf("create temp file: %v", err)
 	}
 	path := f.Name()
-	f.Close()
+	_ = f.Close()
 
 	sink, err := newFileSnapshotSink(path)
 	if err != nil {
@@ -70,7 +70,9 @@ func TestSnapshotPersistToFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open snapshot file: %v", err)
 	}
-	defer b.Close()
+	defer func() {
+		_ = b.Close()
+	}()
 
 	store2 := NewMemoryStore()
 	fsm2 := &FSM{store: store2}

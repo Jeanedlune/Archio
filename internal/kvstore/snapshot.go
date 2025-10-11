@@ -29,7 +29,7 @@ func (s *StoreSnapshot) Persist(sink raft.SnapshotSink) error {
 	if err != nil {
 		metrics.SnapshotErrors.WithLabelValues(phase).Inc()
 		metrics.SnapshotOperations.WithLabelValues(phase, "failed").Inc()
-		sink.Cancel()
+		_ = sink.Cancel()
 		return err
 	}
 
@@ -38,7 +38,7 @@ func (s *StoreSnapshot) Persist(sink raft.SnapshotSink) error {
 	if err != nil {
 		metrics.SnapshotErrors.WithLabelValues(phase).Inc()
 		metrics.SnapshotOperations.WithLabelValues(phase, "failed").Inc()
-		sink.Cancel()
+		_ = sink.Cancel()
 		return err
 	}
 
@@ -46,7 +46,7 @@ func (s *StoreSnapshot) Persist(sink raft.SnapshotSink) error {
 	if _, err := sink.Write(data); err != nil {
 		metrics.SnapshotErrors.WithLabelValues(phase).Inc()
 		metrics.SnapshotOperations.WithLabelValues(phase, "failed").Inc()
-		sink.Cancel()
+		_ = sink.Cancel()
 		return err
 	}
 

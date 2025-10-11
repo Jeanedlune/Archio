@@ -10,6 +10,7 @@ require (
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb v0.0.0-20250926130943-f41fa5f23d89
 	github.com/prometheus/client_golang v1.23.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -50,5 +51,4 @@ require (
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -62,9 +62,12 @@ func (s *Server) GetValue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"value": string(value),
-	})
+	}); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // Job Queue handlers
@@ -92,7 +95,10 @@ func (s *Server) CreateJob(w http.ResponseWriter, r *http.Request) {
 	jobID := s.queue.AddJob(req.Type, []byte(req.Payload))
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(JobResponse{JobID: jobID})
+	if err := json.NewEncoder(w).Encode(JobResponse{JobID: jobID}); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) GetJob(w http.ResponseWriter, r *http.Request) {
@@ -103,5 +109,8 @@ func (s *Server) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(job)
+	if err := json.NewEncoder(w).Encode(job); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }

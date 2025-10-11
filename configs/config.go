@@ -70,7 +70,9 @@ func LoadConfig(filename string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open config file %s: %w", filename, err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	decoder := yaml.NewDecoder(file)
 	if err := decoder.Decode(config); err != nil {
