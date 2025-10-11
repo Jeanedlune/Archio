@@ -3,6 +3,7 @@ package jobqueue
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -15,14 +16,17 @@ const (
 )
 
 type mockHandler struct {
+	mu        sync.Mutex
 	called    bool
 	job       *Job
 	shouldErr bool
 }
 
 func (h *mockHandler) Handle(ctx context.Context, job *Job) error {
+	h.mu.Lock()
 	h.called = true
 	h.job = job
+	h.mu.Unlock()
 	if h.shouldErr {
 		return fmt.Errorf("%s", testErrMsg)
 	}
@@ -69,21 +73,26 @@ func TestJobProcessing(t *testing.T) {
 	// Wait for job processing
 	time.Sleep(100 * time.Millisecond)
 
-	if !handler.called {
+	handler.mu.Lock()
+	called := handler.called
+	job := handler.job
+	handler.mu.Unlock()
+
+	if !called {
 		t.Error("Handler should have been called")
 	}
-	if handler.job == nil {
+	if job == nil {
 		t.Fatal("Handler should have received a job")
 	}
-	if handler.job.ID != id {
-		t.Errorf("Got job ID %s, want %s", handler.job.ID, id)
+	if job.ID != id {
+		t.Errorf("Got job ID %s, want %s", job.ID, id)
 	}
 
-	job, exists := queue.GetJob(id)
+	queueJob, exists := queue.GetJob(id)
 	assertJobExists(t, exists)
 
-	if job.Status != "completed" {
-		t.Errorf("Got status %s, want completed", job.Status)
+	if queueJob.Status != "completed" {
+		t.Errorf("Got status %s, want completed", queueJob.Status)
 	}
 }
 
