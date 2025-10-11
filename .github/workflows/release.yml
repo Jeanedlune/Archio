@@ -53,7 +53,7 @@ jobs:
         zip archio-windows-amd64.zip archio-windows-amd64.exe
 
     - name: Create GitHub release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: |
           bin/*.tar.gz
