@@ -18,7 +18,7 @@ vendor/
 .vscode/
 .idea/
 .DS_Store
-
+.kilocode
 # Local env files
 .env
 env.local
@@ -32,3 +32,6 @@ node_modules/
 
 # Logs
 *.log
+
+# Data directory
+data/

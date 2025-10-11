@@ -28,6 +28,11 @@ This project implements a distributed key-value store with an integrated job que
    ```bash
    go run cmd/server/main.go
    ```
+   Or with a configuration file:
+   ```bash
+   go run cmd/server/main.go -config config.yaml
+   ```
+   The server will start on http://localhost:8080 (or the configured port)
 
 ## Project Structure
 
@@ -36,16 +41,37 @@ This project implements a distributed key-value store with an integrated job que
 ├── cmd/
 │   └── server/       # Main application entrypoints
 ├── internal/
-│   ├── kvstore/     # Key-value store implementation
-│   └── jobqueue/    # Job queue implementation
-├── pkg/
-│   └── api/         # Public API definitions
-└── configs/         # Configuration files
+│   ├── api/          # HTTP API handlers
+│   ├── kvstore/      # Key-value store implementation
+│   ├── jobqueue/     # Job queue implementation
+│   └── metrics/      # Prometheus metrics
+├── configs/          # Configuration files (TBD)
+└── data/             # Data directory (created at runtime)
 ```
 
 ## Configuration
 
-TBD - Configuration options will be documented here.
+Archio supports configuration via YAML files. Copy `config.example.yaml` to `config.yaml` and modify as needed.
+
+Run the server with a config file:
+```bash
+go run cmd/server/main.go -config config.yaml
+```
+
+If no config file is specified, default values are used.
+
+### Configuration Options
+
+- **server.port**: HTTP server port (default: ":8080")
+- **storage.data_dir**: Base directory for data storage (default: "data")
+- **storage.type**: Storage backend - "badger" for persistent or "memory" for in-memory (default: "badger")
+- **raft.enabled**: Enable distributed consensus (default: false)
+- **raft.bind_addr**: Raft communication address (default: ":8081")
+- **raft.bootstrap**: Bootstrap the first cluster node (default: true)
+- **job_queue.worker_count**: Number of job processing workers (default: 5)
+- **job_queue.queue_size**: Maximum queued jobs (default: 100)
+- **job_queue.max_retries**: Maximum retry attempts (default: 3)
+- **job_queue.retry_backoff**: Retry backoff duration (default: "5s")
 
 ## Snapshot & Restore
 
@@ -58,7 +84,57 @@ Notes:
 
 ## API Documentation
 
-TBD - API endpoints will be documented here.
+The server exposes a REST API on port 8080. All requests and responses use JSON format.
+
+### Key-Value Store API
+
+- **POST /kv/{key}** - Set a value for a key
+  - Request body: `{"value": "string"}`
+  - Response: 200 OK
+
+- **GET /kv/{key}** - Get the value for a key
+  - Response: `{"value": "string"}` or 404 if key not found
+
+### Job Queue API
+
+- **POST /jobs/** - Create a new job
+  - Request body: `{"type": "string", "payload": "string"}`
+  - Response: `{"job_id": "string"}` (201 Created)
+
+- **GET /jobs/{id}** - Get job details
+  - Response: Job object or 404 if not found
+
+### Metrics
+
+- **GET /metrics** - Prometheus metrics endpoint
+
+## API Usage Examples
+
+### Set a key-value pair
+```bash
+curl -X POST http://localhost:8080/kv/mykey \
+  -H "Content-Type: application/json" \
+  -d '{"value": "Hello World"}'
+```
+
+### Get a value
+```bash
+curl http://localhost:8080/kv/mykey
+# Response: {"value": "Hello World"}
+```
+
+### Create a job
+```bash
+curl -X POST http://localhost:8080/jobs/ \
+  -H "Content-Type: application/json" \
+  -d '{"type": "email", "payload": "user@example.com"}'
+# Response: {"job_id": "job-123"}
+```
+
+### Get job status
+```bash
+curl http://localhost:8080/jobs/job-123
+```
 
 ## Metrics
 

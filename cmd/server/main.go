@@ -1,10 +1,13 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
+	"github.com/Jeanedlune/archio/configs"
 	"github.com/Jeanedlune/archio/internal/api"
 	"github.com/Jeanedlune/archio/internal/jobqueue"
 	"github.com/Jeanedlune/archio/internal/kvstore"
@@ -14,21 +17,43 @@ import (
 )
 
 func main() {
+	// Parse command line flags
+	configFile := flag.String("config", "", "Path to configuration file")
+	flag.Parse()
+
+	// Load configuration
+	config, err := configs.LoadConfig(*configFile)
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
 	// Create data directory if it doesn't exist
-	if err := os.MkdirAll("data/kvstore", 0755); err != nil {
+	dataDir := filepath.Join(config.Storage.DataDir, "kvstore")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		log.Fatalf("Failed to create data directory: %v", err)
 	}
 
 	// Initialize components
 	var store kvstore.Store
-	store, err := kvstore.NewBadgerStore("data/kvstore")
-	if err != nil {
-		log.Printf("Failed to initialize BadgerStore: %v, falling back to MemoryStore", err)
+	if config.Storage.Type == "badger" {
+		store, err = kvstore.NewBadgerStore(dataDir)
+		if err != nil {
+			log.Printf("Failed to initialize BadgerStore: %v, falling back to MemoryStore", err)
+			store = kvstore.NewMemoryStore()
+		}
+	} else {
 		store = kvstore.NewMemoryStore()
 	}
 	defer store.Close()
 
-	queue := jobqueue.NewQueue()
+	// Initialize job queue with configuration
+	queueConfig := &jobqueue.QueueConfig{
+		WorkerCount:  config.JobQueue.WorkerCount,
+		QueueSize:    config.JobQueue.QueueSize,
+		MaxRetries:   config.JobQueue.MaxRetries,
+		RetryBackoff: config.JobQueue.RetryBackoff,
+	}
+	queue := jobqueue.NewQueueWithConfig(queueConfig)
 	server := api.NewServer(store, queue)
 
 	// Create router
@@ -57,8 +82,8 @@ func main() {
 	r.Handle("/metrics", promhttp.Handler())
 
 	// Start the server
-	log.Println("Starting server on :8080...")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	log.Printf("Starting server on %s...", config.Server.Port)
+	if err := http.ListenAndServe(config.Server.Port, r); err != nil {
 		log.Fatal(err)
 	}
 }

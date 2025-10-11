@@ -1,0 +1,24 @@
+# Archio Configuration Example
+# Copy this file to config.yaml and modify as needed
+
+# Server configuration
+server:
+  port: ":8080"
+
+# Storage configuration
+storage:
+  data_dir: "data"        # Base directory for data storage
+  type: "badger"         # "badger" for persistent storage, "memory" for in-memory
+
+# Raft consensus configuration (for distributed mode)
+raft:
+  enabled: false          # Set to true to enable distributed consensus
+  bind_addr: ":8081"      # Address for Raft communication
+  bootstrap: true         # Set to true for the first node in the cluster
+
+# Job queue configuration
+job_queue:
+  worker_count: 5         # Number of worker goroutines
+  queue_size: 100         # Maximum number of jobs in queue
+  max_retries: 3          # Maximum retry attempts for failed jobs
+  retry_backoff: "5s"     # Backoff duration between retries
