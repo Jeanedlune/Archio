@@ -103,4 +103,3 @@ func waitForLeader(node *RaftNode, timeout time.Duration) error {
 	}
 	return fmt.Errorf("node did not become leader within %v", timeout)
 }
-
