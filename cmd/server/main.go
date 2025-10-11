@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"github.com/Jeanedlune/archio/configs"
 	"github.com/Jeanedlune/archio/internal/api"
@@ -44,11 +48,20 @@ func main() {
 	} else {
 		store = kvstore.NewMemoryStore()
 	}
-	defer func() {
-		if err := store.Close(); err != nil {
-			log.Printf("Error closing store: %v", err)
+
+	// Initialize Raft if enabled
+	var raftNode *kvstore.RaftNode
+	if config.Raft.Enabled {
+		raftDir := filepath.Join(config.Storage.DataDir, "raft")
+		if err := os.MkdirAll(raftDir, 0o755); err != nil {
+			log.Fatalf("Failed to create raft data directory: %v", err)
 		}
-	}()
+		rn, err := kvstore.NewRaftNode(store, raftDir, config.Raft.BindAddr, config.Raft.Bootstrap)
+		if err != nil {
+			log.Fatalf("Failed to initialize Raft node: %v", err)
+		}
+		raftNode = rn
+	}
 
 	// Initialize job queue with configuration
 	queueConfig := &jobqueue.QueueConfig{
@@ -85,9 +98,33 @@ func main() {
 	// Metrics endpoint
 	r.Handle("/metrics", promhttp.Handler())
 
-	// Start the server
-	log.Printf("Starting server on %s...", config.Server.Port)
-	if err := http.ListenAndServe(config.Server.Port, r); err != nil {
-		log.Fatal(err)
+	// Start the server with graceful shutdown
+	srv := &http.Server{Addr: config.Server.Port, Handler: r}
+
+	go func() {
+		log.Printf("Starting server on %s...", config.Server.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP server error: %v", err)
+		}
+	}()
+
+	// Wait for termination signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("HTTP server Shutdown: %v", err)
+	}
+	if raftNode != nil {
+		if err := raftNode.Shutdown(); err != nil {
+			log.Printf("Raft shutdown error: %v", err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		log.Printf("Error closing store: %v", err)
 	}
 }
