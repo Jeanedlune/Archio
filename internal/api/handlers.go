@@ -148,7 +148,7 @@ func (s *Server) SetReady(ready bool) {
 func (s *Server) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok",
 	})
 }
@@ -158,7 +158,7 @@ func (s *Server) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	if !s.ready.Load() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"status": "not ready",
 		})
 		return
@@ -166,7 +166,7 @@ func (s *Server) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status": "ready",
 	})
 }
