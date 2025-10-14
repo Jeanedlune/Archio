@@ -128,6 +128,7 @@ func (s *Server) DeleteJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ListJobs(w http.ResponseWriter, r *http.Request) {
 	jobs := s.queue.ListJobs()
 
+	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(jobs); err != nil {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 		return

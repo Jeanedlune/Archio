@@ -277,19 +277,17 @@ func (q *Queue) recoverJobs() error {
 
 		q.mu.Lock()
 		q.jobs[job.ID] = &job
+		// Reset processing jobs to pending to avoid duplicate processing
+		if job.Status == "processing" {
+			job.Status = "pending"
+			job.Updated = time.Now()
+			q.saveJob(&job)
+		}
 		q.mu.Unlock()
 		recoveredCount++
 
-		// Re-queue pending or processing jobs
-		if job.Status == "pending" || job.Status == "processing" {
-			// Reset processing jobs to pending to avoid duplicate processing
-			if job.Status == "processing" {
-				q.mu.Lock()
-				job.Status = "pending"
-				job.Updated = time.Now()
-				q.saveJob(&job)
-				q.mu.Unlock()
-			}
+		// Re-queue pending jobs (which now includes jobs that were 'processing')
+		if job.Status == "pending" {
 			q.tasks <- &job
 			restartedCount++
 		}

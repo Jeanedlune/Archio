@@ -122,11 +122,11 @@ func TestJobRecovery(t *testing.T) {
 	}
 
 	// Jobs should have been processed successfully after recovery
-	if job1.Status != "completed" && job1.Status != "pending" {
-		t.Logf("Job 1 status: %s (attempts: %d)", job1.Status, job1.Attempts)
+	if job1.Status != "completed" {
+		t.Errorf("Job 1 status should be 'completed', but got '%s' (attempts: %d)", job1.Status, job1.Attempts)
 	}
-	if job2.Status != "completed" && job2.Status != "pending" {
-		t.Logf("Job 2 status: %s (attempts: %d)", job2.Status, job2.Attempts)
+	if job2.Status != "completed" {
+		t.Errorf("Job 2 status should be 'completed', but got '%s' (attempts: %d)", job2.Status, job2.Attempts)
 	}
 }
 
@@ -204,10 +204,15 @@ func TestJobRecoveryNoDuplicateProcessing(t *testing.T) {
 
 // blockingHandler blocks until channel is closed
 type blockingHandler struct {
-	blockChan chan struct{}
+	blockChan   chan struct{}
+	startedChan chan struct{}
 }
 
 func (h *blockingHandler) Handle(ctx context.Context, job *Job) error {
+	// Signal that processing has started
+	if h.startedChan != nil {
+		h.startedChan <- struct{}{}
+	}
 	<-h.blockChan // Block until we close the channel
 	return nil
 }
@@ -221,14 +226,23 @@ func TestJobRecoveryProcessingToPending(t *testing.T) {
 
 	// Create a handler that blocks
 	blockChan := make(chan struct{})
-	blockingHandler := &blockingHandler{blockChan: blockChan}
+	startedChan := make(chan struct{})
+	blockingHandler := &blockingHandler{
+		blockChan:   blockChan,
+		startedChan: startedChan,
+	}
 
 	queue1.RegisterHandler(testJobType, blockingHandler)
 
 	jobID := queue1.AddJob(testJobType, []byte(testPayload))
 
-	// Wait for job to start processing
-	time.Sleep(50 * time.Millisecond)
+	// Wait for job to actually start processing
+	select {
+	case <-startedChan:
+		// Job has started processing
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for job to start processing")
+	}
 
 	// Check job is in processing state
 	job, exists := queue1.GetJob(jobID)
@@ -236,7 +250,7 @@ func TestJobRecoveryProcessingToPending(t *testing.T) {
 		t.Fatal("Job should exist")
 	}
 	if job.Status != "processing" {
-		t.Logf("Warning: Job status is %s, expected processing", job.Status)
+		t.Fatalf("Job status should be 'processing', got '%s'", job.Status)
 	}
 
 	// Shutdown queue while job is processing (don't unblock handler)

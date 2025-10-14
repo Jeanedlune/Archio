@@ -91,9 +91,20 @@ Comprehensive tests are provided in `persistence_test.go`:
 package main
 
 import (
+    "context"
+    "fmt"
     "github.com/Jeanedlune/archio/internal/jobqueue"
     "github.com/Jeanedlune/archio/internal/kvstore"
 )
+
+// EmailHandler is an example handler for email jobs
+type EmailHandler struct{}
+
+func (h *EmailHandler) Handle(ctx context.Context, job *jobqueue.Job) error {
+    fmt.Printf("Sending email with payload: %s\n", string(job.Payload))
+    // Implement actual email sending logic here
+    return nil
+}
 
 func main() {
     // Initialize persistent storage
@@ -112,6 +123,7 @@ func main() {
     
     // Add jobs - they will survive restarts
     jobID := queue.AddJob("email", []byte(`{"to": "user@example.com"}`))
+    fmt.Printf("Created job: %s\n", jobID)
     
     // Jobs are automatically recovered on next startup
 }
@@ -128,9 +140,12 @@ func main() {
 ## Performance Considerations
 
 - Job state is persisted synchronously on each state change
+  - Current implementation prioritizes data consistency over throughput
+  - For high-throughput scenarios, consider implementing async persistence
 - Uses the same BadgerDB backend as KV store (efficient)
 - Minimal overhead for in-memory operations
 - Recovery time depends on number of stored jobs
+- Lock is held during persistence operations to ensure consistency
 
 ## Future Enhancements
 
