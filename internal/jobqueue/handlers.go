@@ -36,7 +36,7 @@ func (p *JobProcessor) Process(ctx context.Context, job *Job) error {
 	p.mu.RLock()
 	handler, exists := p.handlers[job.Type]
 	p.mu.RUnlock()
-	
+
 	if !exists {
 		return fmt.Errorf("no handler registered for job type: %s", job.Type)
 	}
