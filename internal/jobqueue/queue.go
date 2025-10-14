@@ -2,6 +2,10 @@ package jobqueue
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +24,14 @@ type Job struct {
 	Attempts int       `json:"attempts"`
 }
 
+// Store defines the interface for persistent storage
+type Store interface {
+	Set(key string, value []byte) error
+	Get(key string) ([]byte, bool, error)
+	Delete(key string) error
+	ForEach(fn func(key string, value []byte) error) error
+}
+
 // Queue manages the job queue system
 type Queue struct {
 	mu        sync.RWMutex
@@ -29,6 +41,7 @@ type Queue struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	config    *QueueConfig
+	store     Store // Persistent storage for jobs
 }
 
 // QueueConfig holds configuration for the job queue
@@ -49,13 +62,18 @@ func DefaultConfig() *QueueConfig {
 	}
 }
 
-// NewQueue creates a new job queue instance
+// NewQueue creates a new job queue instance without persistence
 func NewQueue() *Queue {
-	return NewQueueWithConfig(DefaultConfig())
+	return NewQueueWithConfig(DefaultConfig(), nil)
 }
 
-// NewQueueWithConfig creates a new job queue with custom configuration
-func NewQueueWithConfig(config *QueueConfig) *Queue {
+// NewQueueWithStore creates a new job queue with persistence
+func NewQueueWithStore(store Store) *Queue {
+	return NewQueueWithConfig(DefaultConfig(), store)
+}
+
+// NewQueueWithConfig creates a new job queue with custom configuration and optional persistence
+func NewQueueWithConfig(config *QueueConfig, store Store) *Queue {
 	ctx, cancel := context.WithCancel(context.Background())
 	q := &Queue{
 		jobs:      make(map[string]*Job),
@@ -64,11 +82,19 @@ func NewQueueWithConfig(config *QueueConfig) *Queue {
 		ctx:       ctx,
 		cancel:    cancel,
 		config:    config,
+		store:     store,
 	}
 
 	// Register default handlers
 	q.processor.RegisterHandler("email", &EmailJobHandler{})
 	q.processor.RegisterHandler("data_processing", &DataProcessingHandler{})
+
+	// Recover jobs from persistent storage if available
+	if store != nil {
+		if err := q.recoverJobs(); err != nil {
+			log.Printf("Warning: Failed to recover jobs from storage: %v", err)
+		}
+	}
 
 	// Start worker pool
 	go q.startWorkers(config.WorkerCount)
@@ -105,6 +131,7 @@ func (q *Queue) processJob(job *Job) {
 	job.Status = "processing"
 	job.Attempts++
 	job.Updated = time.Now()
+	q.saveJob(job) // Persist state change
 	q.mu.Unlock()
 
 	err := q.processor.Process(q.ctx, job)
@@ -125,6 +152,7 @@ func (q *Queue) processJob(job *Job) {
 		job.Status = "completed"
 	}
 	job.Updated = time.Now()
+	q.saveJob(job) // Persist final state
 }
 
 // AddJob adds a new job to the queue
@@ -140,6 +168,7 @@ func (q *Queue) AddJob(jobType string, payload []byte) string {
 
 	q.mu.Lock()
 	q.jobs[job.ID] = job
+	q.saveJob(job) // Persist new job
 	q.mu.Unlock()
 
 	q.tasks <- job
@@ -160,7 +189,121 @@ func (q *Queue) GetJob(id string) (*Job, bool) {
 	return &jobCopy, true
 }
 
+// DeleteJob removes a job from the queue and persistent storage
+func (q *Queue) DeleteJob(id string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if _, exists := q.jobs[id]; !exists {
+		return fmt.Errorf("job %s not found", id)
+	}
+
+	delete(q.jobs, id)
+	q.deleteJob(id)
+	return nil
+}
+
+// ListJobs returns all jobs in the queue
+func (q *Queue) ListJobs() []*Job {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	jobs := make([]*Job, 0, len(q.jobs))
+	for _, job := range q.jobs {
+		jobCopy := *job
+		jobs = append(jobs, &jobCopy)
+	}
+	return jobs
+}
+
 // generateID creates a unique job ID using UUID
 func generateID() string {
 	return uuid.New().String()
+}
+
+// jobKeyPrefix is the prefix for job keys in the store
+const jobKeyPrefix = "job:"
+
+// saveJob persists a job to the store (caller must hold lock)
+func (q *Queue) saveJob(job *Job) {
+	if q.store == nil {
+		return
+	}
+
+	data, err := json.Marshal(job)
+	if err != nil {
+		log.Printf("Error marshaling job %s: %v", job.ID, err)
+		return
+	}
+
+	key := jobKeyPrefix + job.ID
+	if err := q.store.Set(key, data); err != nil {
+		log.Printf("Error saving job %s to store: %v", job.ID, err)
+	}
+}
+
+// deleteJob removes a job from persistent storage (caller must hold lock)
+func (q *Queue) deleteJob(jobID string) {
+	if q.store == nil {
+		return
+	}
+
+	key := jobKeyPrefix + jobID
+	if err := q.store.Delete(key); err != nil {
+		log.Printf("Error deleting job %s from store: %v", jobID, err)
+	}
+}
+
+// recoverJobs loads jobs from persistent storage on startup
+func (q *Queue) recoverJobs() error {
+	if q.store == nil {
+		return nil
+	}
+
+	recoveredCount := 0
+	restartedCount := 0
+
+	err := q.store.ForEach(func(key string, value []byte) error {
+		// Only process job keys
+		if !strings.HasPrefix(key, jobKeyPrefix) {
+			return nil
+		}
+
+		var job Job
+		if err := json.Unmarshal(value, &job); err != nil {
+			log.Printf("Error unmarshaling job from key %s: %v", key, err)
+			return nil // Continue with other jobs
+		}
+
+		q.mu.Lock()
+		q.jobs[job.ID] = &job
+		// Reset processing jobs to pending to avoid duplicate processing
+		if job.Status == "processing" {
+			job.Status = "pending"
+			job.Updated = time.Now()
+			q.saveJob(&job)
+		}
+		q.mu.Unlock()
+		recoveredCount++
+
+		// Re-queue pending jobs (which now includes jobs that were 'processing')
+		if job.Status == "pending" {
+			q.tasks <- &job
+			restartedCount++
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("error iterating over stored jobs: %w", err)
+	}
+
+	log.Printf("Job recovery complete: %d jobs recovered, %d jobs restarted", recoveredCount, restartedCount)
+	return nil
+}
+
+// Shutdown gracefully shuts down the queue
+func (q *Queue) Shutdown() {
+	q.cancel()
 }

@@ -150,7 +150,7 @@ func newQueueWithConfigRetries(maxRetries int, backoff time.Duration, shouldErr 
 		MaxRetries:   maxRetries,
 		RetryBackoff: backoff,
 	}
-	q := NewQueueWithConfig(cfg)
+	q := NewQueueWithConfig(cfg, nil)
 	h := &mockHandler{shouldErr: shouldErr}
 	q.RegisterHandler(testJobType, h)
 	id := q.AddJob(testJobType, []byte(testPayload))

@@ -114,3 +114,23 @@ func (s *Server) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
+func (s *Server) DeleteJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+	if err := s.queue.DeleteJob(jobID); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) ListJobs(w http.ResponseWriter, r *http.Request) {
+	jobs := s.queue.ListJobs()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(jobs); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}

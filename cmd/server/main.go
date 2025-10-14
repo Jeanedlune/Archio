@@ -63,14 +63,15 @@ func main() {
 		raftNode = rn
 	}
 
-	// Initialize job queue with configuration
+	// Initialize job queue with configuration and persistence
 	queueConfig := &jobqueue.QueueConfig{
 		WorkerCount:  config.JobQueue.WorkerCount,
 		QueueSize:    config.JobQueue.QueueSize,
 		MaxRetries:   config.JobQueue.MaxRetries,
 		RetryBackoff: config.JobQueue.RetryBackoff,
 	}
-	queue := jobqueue.NewQueueWithConfig(queueConfig)
+	queue := jobqueue.NewQueueWithConfig(queueConfig, store)
+	log.Printf("Job queue initialized with persistence enabled")
 	server := api.NewServer(store, queue)
 
 	// Create router
@@ -92,7 +93,9 @@ func main() {
 	// Job Queue routes
 	r.Route("/jobs", func(r chi.Router) {
 		r.Post("/", server.CreateJob)
+		r.Get("/", server.ListJobs)
 		r.Get("/{id}", server.GetJob)
+		r.Delete("/{id}", server.DeleteJob)
 	})
 
 	// Metrics endpoint
@@ -124,6 +127,8 @@ func main() {
 			log.Printf("Raft shutdown error: %v", err)
 		}
 	}
+	queue.Shutdown()
+	log.Println("Job queue shut down")
 	if err := store.Close(); err != nil {
 		log.Printf("Error closing store: %v", err)
 	}
