@@ -119,7 +119,7 @@ func TestJobRecovery(t *testing.T) {
 	// Verify jobs completed in queue1
 	job1Before, _ := queue1.GetJob(jobID1)
 	job2Before, _ := queue1.GetJob(jobID2)
-	
+
 	if job1Before.Status != "completed" {
 		t.Logf("Job 1 status before shutdown: %s", job1Before.Status)
 	}
