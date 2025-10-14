@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/Jeanedlune/archio/internal/jobqueue"
 	"github.com/Jeanedlune/archio/internal/kvstore"
@@ -14,6 +15,7 @@ type Server struct {
 	store    kvstore.Store
 	queue    *jobqueue.Queue
 	validate *validator.Validate
+	ready    atomic.Bool
 }
 
 func NewServer(store kvstore.Store, queue *jobqueue.Queue) *Server {
@@ -133,4 +135,38 @@ func (s *Server) ListJobs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 		return
 	}
+}
+
+// Health check handlers
+
+// SetReady marks the server as ready to accept traffic
+func (s *Server) SetReady(ready bool) {
+	s.ready.Store(ready)
+}
+
+// HealthCheck returns basic health status
+func (s *Server) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "ok",
+	})
+}
+
+// ReadinessCheck returns readiness status
+func (s *Server) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
+	if !s.ready.Load() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "not ready",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "ready",
+	})
 }
