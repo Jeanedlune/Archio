@@ -259,9 +259,6 @@ func (h *blockingHandler) Handle(ctx context.Context, job *Job) error {
 func TestJobRecoveryProcessingToPending(t *testing.T) {
 	store := newMockStore()
 
-	// Create a queue
-	queue1 := NewQueueWithStore(store)
-
 	// Create a handler that blocks
 	blockChan := make(chan struct{})
 	startedChan := make(chan struct{})
@@ -270,6 +267,8 @@ func TestJobRecoveryProcessingToPending(t *testing.T) {
 		startedChan: startedChan,
 	}
 
+	// Create a queue and register handler BEFORE starting workers
+	queue1 := NewQueueWithStore(store)
 	queue1.RegisterHandler(testJobType, blockingHandler)
 
 	jobID := queue1.AddJob(testJobType, []byte(testPayload))
