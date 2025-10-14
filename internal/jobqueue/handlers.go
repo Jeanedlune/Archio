@@ -3,6 +3,7 @@ package jobqueue
 import (
 	"context"
 	"fmt"
+	"sync"
 )
 
 // JobHandler defines the interface for processing different types of jobs
@@ -12,6 +13,7 @@ type JobHandler interface {
 
 // JobProcessor manages different job handlers
 type JobProcessor struct {
+	mu       sync.RWMutex
 	handlers map[string]JobHandler
 }
 
@@ -24,12 +26,17 @@ func NewJobProcessor() *JobProcessor {
 
 // RegisterHandler registers a handler for a specific job type
 func (p *JobProcessor) RegisterHandler(jobType string, handler JobHandler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.handlers[jobType] = handler
 }
 
 // Process processes a job using the appropriate handler
 func (p *JobProcessor) Process(ctx context.Context, job *Job) error {
+	p.mu.RLock()
 	handler, exists := p.handlers[job.Type]
+	p.mu.RUnlock()
+
 	if !exists {
 		return fmt.Errorf("no handler registered for job type: %s", job.Type)
 	}

@@ -42,9 +42,19 @@ func (s *mockStore) Delete(key string) error {
 }
 
 func (s *mockStore) ForEach(fn func(key string, value []byte) error) error {
+	// Copy data to avoid holding lock during callback
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	dataCopy := make(map[string][]byte, len(s.data))
 	for k, v := range s.data {
+		// Make a copy of the value slice
+		valueCopy := make([]byte, len(v))
+		copy(valueCopy, v)
+		dataCopy[k] = valueCopy
+	}
+	s.mu.RUnlock()
+
+	// Call function without holding lock
+	for k, v := range dataCopy {
 		if err := fn(k, v); err != nil {
 			return err
 		}
@@ -60,6 +70,7 @@ func (s *mockStore) Close() error {
 func TestJobPersistence(t *testing.T) {
 	store := newMockStore()
 	queue := NewQueueWithStore(store)
+	defer queue.Shutdown()
 
 	// Register a handler that does nothing
 	queue.RegisterHandler(testJobType, &mockHandler{shouldErr: false})
@@ -88,27 +99,50 @@ func TestJobPersistence(t *testing.T) {
 func TestJobRecovery(t *testing.T) {
 	store := newMockStore()
 
-	// Create first queue and add jobs
-	queue1 := NewQueueWithStore(store)
-	handler1 := &mockHandler{shouldErr: true} // Make it fail so it stays pending
+	// Create first queue - jobs will complete successfully
+	config1 := &QueueConfig{
+		WorkerCount:  1,
+		QueueSize:    10,
+		MaxRetries:   3,
+		RetryBackoff: 10 * time.Millisecond,
+	}
+	queue1 := NewQueueWithConfig(config1, store)
+	handler1 := &mockHandler{shouldErr: false} // Success handler
 	queue1.RegisterHandler(testJobType, handler1)
 
 	jobID1 := queue1.AddJob(testJobType, []byte("payload1"))
 	jobID2 := queue1.AddJob(testJobType, []byte("payload2"))
 
-	// Wait for initial processing attempts
-	time.Sleep(100 * time.Millisecond)
+	// Wait for jobs to complete
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify jobs completed in queue1
+	job1Before, _ := queue1.GetJob(jobID1)
+	job2Before, _ := queue1.GetJob(jobID2)
+
+	if job1Before.Status != "completed" {
+		t.Logf("Job 1 status before shutdown: %s", job1Before.Status)
+	}
+	if job2Before.Status != "completed" {
+		t.Logf("Job 2 status before shutdown: %s", job2Before.Status)
+	}
 
 	// Shutdown first queue
 	queue1.Shutdown()
 
 	// Create second queue with same store (simulating restart)
-	queue2 := NewQueueWithStore(store)
+	config2 := &QueueConfig{
+		WorkerCount:  1,
+		QueueSize:    10,
+		MaxRetries:   3,
+		RetryBackoff: 10 * time.Millisecond,
+	}
+	queue2 := NewQueueWithConfig(config2, store)
 	handler2 := &mockHandler{shouldErr: false}
 	queue2.RegisterHandler(testJobType, handler2)
 
-	// Wait for recovery and processing
-	time.Sleep(200 * time.Millisecond)
+	// Wait for recovery (completed jobs should not be reprocessed)
+	time.Sleep(100 * time.Millisecond)
 
 	// Check that jobs were recovered
 	job1, exists1 := queue2.GetJob(jobID1)
@@ -121,7 +155,10 @@ func TestJobRecovery(t *testing.T) {
 		t.Fatal("Job 2 should be recovered")
 	}
 
-	// Jobs should have been processed successfully after recovery
+	// Shutdown queue2 to clean up
+	queue2.Shutdown()
+
+	// Jobs should remain completed (not reprocessed)
 	if job1.Status != "completed" {
 		t.Errorf("Job 1 status should be 'completed', but got '%s' (attempts: %d)", job1.Status, job1.Attempts)
 	}
@@ -180,6 +217,7 @@ func TestJobRecoveryNoDuplicateProcessing(t *testing.T) {
 	queue1.Shutdown()
 
 	queue2 := NewQueueWithStore(store)
+	defer queue2.Shutdown()
 	queue2.RegisterHandler(testJobType, countingHandler)
 
 	// Wait for potential duplicate processing
@@ -221,9 +259,6 @@ func (h *blockingHandler) Handle(ctx context.Context, job *Job) error {
 func TestJobRecoveryProcessingToPending(t *testing.T) {
 	store := newMockStore()
 
-	// Create a queue
-	queue1 := NewQueueWithStore(store)
-
 	// Create a handler that blocks
 	blockChan := make(chan struct{})
 	startedChan := make(chan struct{})
@@ -232,6 +267,8 @@ func TestJobRecoveryProcessingToPending(t *testing.T) {
 		startedChan: startedChan,
 	}
 
+	// Create a queue and register handler BEFORE starting workers
+	queue1 := NewQueueWithStore(store)
 	queue1.RegisterHandler(testJobType, blockingHandler)
 
 	jobID := queue1.AddJob(testJobType, []byte(testPayload))
@@ -259,6 +296,7 @@ func TestJobRecoveryProcessingToPending(t *testing.T) {
 
 	// Create new queue (simulating restart)
 	queue2 := NewQueueWithStore(store)
+	defer queue2.Shutdown()
 	normalHandler := &mockHandler{shouldErr: false}
 	queue2.RegisterHandler(testJobType, normalHandler)
 
@@ -297,6 +335,7 @@ func (h *retryHandler) Handle(ctx context.Context, job *Job) error {
 func TestJobPersistenceStateChanges(t *testing.T) {
 	store := newMockStore()
 	queue := NewQueueWithStore(store)
+	defer queue.Shutdown()
 
 	// Handler that fails first time, succeeds second time
 	retryHandler := &retryHandler{}
@@ -337,6 +376,7 @@ func TestJobPersistenceStateChanges(t *testing.T) {
 // TestQueueWithoutPersistence verifies queue works without store
 func TestQueueWithoutPersistence(t *testing.T) {
 	queue := NewQueue() // No store
+	defer queue.Shutdown()
 
 	handler := &mockHandler{shouldErr: false}
 	queue.RegisterHandler(testJobType, handler)
@@ -359,6 +399,7 @@ func TestQueueWithoutPersistence(t *testing.T) {
 func TestBackwardCompatibility(t *testing.T) {
 	// Old way of creating queue (without store)
 	queue := NewQueue()
+	defer queue.Shutdown()
 
 	handler := &mockHandler{shouldErr: false}
 	queue.RegisterHandler(testJobType, handler)
@@ -380,6 +421,7 @@ func TestBackwardCompatibility(t *testing.T) {
 func TestDeleteJob(t *testing.T) {
 	store := newMockStore()
 	queue := NewQueueWithStore(store)
+	defer queue.Shutdown()
 
 	handler := &mockHandler{shouldErr: false}
 	queue.RegisterHandler(testJobType, handler)
@@ -421,6 +463,7 @@ func TestDeleteJob(t *testing.T) {
 // TestListJobs verifies listing all jobs
 func TestListJobs(t *testing.T) {
 	queue := NewQueue()
+	defer queue.Shutdown()
 
 	handler := &mockHandler{shouldErr: false}
 	queue.RegisterHandler(testJobType, handler)

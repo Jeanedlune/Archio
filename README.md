@@ -104,6 +104,11 @@ The server exposes a REST API on port 8080. All requests and responses use JSON 
 - **GET /jobs/{id}** - Get job details
   - Response: Job object or 404 if not found
 
+### Health Check Endpoints
+
+- **GET /health** - Basic health check (always returns 200 if server is running)
+- **GET /ready** - Readiness check (returns 200 when ready, 503 when not ready)
+
 ### Metrics
 
 - **GET /metrics** - Prometheus metrics endpoint
@@ -134,6 +139,17 @@ curl -X POST http://localhost:8080/jobs/ \
 ### Get job status
 ```bash
 curl http://localhost:8080/jobs/job-123
+```
+
+### Health checks
+```bash
+# Basic health check
+curl http://localhost:8080/health
+# Response: {"status":"ok"}
+
+# Readiness check
+curl http://localhost:8080/ready
+# Response: {"status":"ready"} (200) or {"status":"not ready"} (503)
 ```
 
 ## Metrics

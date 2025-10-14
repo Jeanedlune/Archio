@@ -98,11 +98,22 @@ func main() {
 		r.Delete("/{id}", server.DeleteJob)
 	})
 
+	// Health check endpoints
+	r.Get("/health", server.HealthCheck)
+	r.Get("/ready", server.ReadinessCheck)
+
 	// Metrics endpoint
 	r.Handle("/metrics", promhttp.Handler())
 
 	// Start the server with graceful shutdown
-	srv := &http.Server{Addr: config.Server.Port, Handler: r}
+	srv := &http.Server{
+		Addr:    config.Server.Port,
+		Handler: r,
+	}
+
+	// Mark server as ready
+	server.SetReady(true)
+	log.Printf("Server marked as ready")
 
 	go func() {
 		log.Printf("Starting server on %s...", config.Server.Port)
@@ -115,21 +126,47 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down...")
+	log.Println("Received shutdown signal, starting graceful shutdown...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Mark server as not ready immediately
+	server.SetReady(false)
+	log.Println("Server marked as not ready")
+
+	// Create shutdown context with timeout
+	shutdownTimeout := 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+
+	// Shutdown HTTP server (stops accepting new connections)
+	log.Println("Shutting down HTTP server...")
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("HTTP server Shutdown: %v", err)
+		log.Printf("HTTP server shutdown error: %v", err)
+	} else {
+		log.Println("HTTP server shut down successfully")
 	}
+
+	// Shutdown Raft node
 	if raftNode != nil {
+		log.Println("Shutting down Raft node...")
 		if err := raftNode.Shutdown(); err != nil {
 			log.Printf("Raft shutdown error: %v", err)
+		} else {
+			log.Println("Raft node shut down successfully")
 		}
 	}
+
+	// Shutdown job queue (stops workers)
+	log.Println("Shutting down job queue...")
 	queue.Shutdown()
-	log.Println("Job queue shut down")
+	log.Println("Job queue shut down successfully")
+
+	// Close storage
+	log.Println("Closing storage...")
 	if err := store.Close(); err != nil {
 		log.Printf("Error closing store: %v", err)
+	} else {
+		log.Println("Storage closed successfully")
 	}
+
+	log.Println("Graceful shutdown completed")
 }
